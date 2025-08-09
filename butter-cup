@@ -2,22 +2,28 @@
 # btrfs backup - butter cup :3
 
 function print_usage
-    printf ''
+    printf 'usage: \n'
+    exit
 end
 
-function err --description 'prints the given error message'
+function err --description 'prints the given error message and exits'
     set_color brred
-    echo $argv
+    echo $argv >&2
+    set_color normal
+    exit 1
+end
+
+function info --description 'prints info as cyan into stderr, to enhance readability and avoid being hidden and used by redirection'
+    set_color brcyan
+    echo $argv >&2
     set_color normal
 end
 
 function assertArgNumber --description 'prints warning messages and exits if the calling function has a different number of args than specified' --argument-names real expected function
     if test "$real" -lt "$expected"
         err "less than expected $expected arguments to $function"
-        exit
     else if test "$real" -gt "$expected"
         err "extraneous argument(s) to $function"
-        exit
     end
 end
 
@@ -32,45 +38,110 @@ function isSubv --description 'check if the given dir is a subvolume' --argument
     end
 end
 
-function onlyContainsSubv --description 'check if the given dir only contains subvolumes' --argument-names dir
+function listSubv --description 'lists subvolumes in the given path' --argument-names path
     assertArgNumber (count $argv) 1 (status function)
 
-    for i in $(find "$dir" -maxdepth 1)
-        if not isSubv "$i"
-            return 1
+    for i in (find "$path" -maxdepth 1 -mindepth 1)
+        if isSubv "$i"
+            printf "%s\n" "$i"
         end
     end
-
-    return 0
 end
 
-function isBackupDir --description 'checks if the given backup-path only contains subvolumes' --argument-names backup_path
+function listSubvTime --description 'lists subvolumes in the given path with their creation date in seconds first, so they can then be sorted' --argument-names path
     assertArgNumber (count $argv) 1 (status function)
 
-    if not path is "$backup_path"
-        err "backup-path '$backup_path' must be a valid directory"
-        return 1
+    for i in (find "$path" -maxdepth 1 -mindepth 1)
+        if isSubv "$i"
+            # please include options for machine readable output so this would not be needed
+            printf "%s %s\n" "$(date --date $(sudo btrfs subvolume show "$i" | grep -oP 'Creation time:\s*\K\d.*$') +%s)" "$i"
+        end
     end
-
-    if not onlyContainsSubv "$backup_path"
-        err "backup-path '$backup_path' must only contain incremental backup subvolumes"
-        return 1
-    end
-
-    return 0
 end
 
-argparse h/help 'o/original-path=!isSubv "$_flag_value"' 'b/backup-path=!isBackupDir "$_flag_value"' -- $argv
+function listSubvSort --description 'wraps listSubvTime, sorts it, and removes the time' --argument-names path
+    assertArgNumber (count $argv) 1 (status function)
 
-if test -n "$_flag_h"
+    listSubvTime "$path" | sort -n | cut -d' ' -f2-
+end
+
+function mostRecentSubv --argument-names path
+    set sortedSubvols $(listSubvSort "$path")
+    echo $sortedSubvols[1]
+end
+
+function renameReceived --argument-names subvol mount
+    assertArgNumber (count $argv) 2 (status function)
+
+    sudo mv "$mount/$(path basename "$subvol")" "$(getIncrementName "$mount")"
+end
+
+function initialBackup --argument-names subvol mount
+    assertArgNumber (count $argv) 2 (status function)
+
+    sudo btrfs send --compressed-data "$subvol" | sudo btrfs receive "$mount"
+    renameReceived "$subvol" "$mount"
+end
+
+function incrementalBackup --argument-names subvol parent mount
+    assertArgNumber (count $argv) 3 (status function)
+
+    sudo btrfs send --compressed-data "$subvol" -p "$parent" | sudo btrfs receive "$mount"
+    renameReceived "$subvol" "$mount"
+end
+
+function getIncrementName --description 'outputs the name for the next incremental backup' --argument-names mount
+    assertArgNumber (count $argv) 1 (status function)
+
+    set subvols (listSubvSort "$mount")
+    set name "@$(math "$(path basename $subvols[1] | cut -d'@' -f2-) + 1")"
+    if test "$status" -eq 0
+        err "creating increment name '$name' ended with an error"
+    end
+
+    echo $name
+end
+
+function findMatch --argument-names subvol mount
+    set sourceSnaps $(listSubvTime)
+    set
+end
+
+argparse h/help 'o/original-path=' 'b/backup-path=' -- $argv
+or print_usage
+
+if set -ql _flag_h
     print_usage
 end
 
-# check for missing '.snapshots' subvolume at the origin; create it if it is missing
-if not isSubv "$_flag_o/.snapshots"
-    sudo btrfs subvolume create "$_flag_o/.snapshots"
-else
-    if not onlyContainsSubv "$_flag_o/.snapshots"
-        err "path '$_flag_o/.snapshots' should only contain subvolumes"
-    end
+# assert basic argument requirements
+if not isSubv "$_flag_o"
+    err "origin-path must lead to a subvolume"
 end
+if not path is -d "$_flag_b"
+    err "backup-path must be a directory"
+end
+
+if not isSubv "$_flag_o/.snapshots" # TODO: account for case in which it is not a subvolume, and contains files
+    sudo btrfs subvolume create "$_flag_o/.snapshots"
+end
+
+if test (count (listSubv "$_flag_o/.snapshots")) -lt 1
+    sudo btrfs subvolume snapshot -r "$_flag_o" "$_flag_o/.snapshots/$(random)"
+end
+
+set source (listSubvSort "$_flag_o/.snapshots")
+if test (count (listSubv "$_flag_b")) -eq 0
+    initialBackup "$source[1]" "$_flag_b"
+else
+    incrementalBackup "$source[1]" "$source[2]" "$_flag_b/$(getIncrementName $_flag_b)"
+end
+
+'
+[sudo: authenticate] Password: 
+At subvol /mnt/data/.snapshots/7288
+At subvol 7288
+[sudo: authenticate] Password: sudo-rs: timed out
+date: invalid date ‘+%s’
+creating increment name \'@7289\' ended with an error
+'
