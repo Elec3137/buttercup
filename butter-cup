@@ -1,0 +1,76 @@
+#!/usr/bin/env fish
+# btrfs backup - butter cup :3
+
+function print_usage
+    printf ''
+end
+
+function err --description 'prints the given error message'
+    set_color brred
+    echo $argv
+    set_color normal
+end
+
+function assertArgNumber --description 'prints warning messages and exits if the calling function has a different number of args than specified' --argument-names real expected function
+    if test "$real" -lt "$expected"
+        err "less than expected $expected arguments to $function"
+        exit
+    else if test "$real" -gt "$expected"
+        err "extraneous argument(s) to $function"
+        exit
+    end
+end
+
+function isSubv --description 'check if the given dir is a subvolume' --argument-names dir
+    assertArgNumber (count $argv) 1 (status function)
+
+    if path is -d "$dir"
+        and test $(stat --format=%i "$dir") -eq 256
+        return 0
+    else
+        return 1
+    end
+end
+
+function onlyContainsSubv --description 'check if the given dir only contains subvolumes' --argument-names dir
+    assertArgNumber (count $argv) 1 (status function)
+
+    for i in $(find "$dir" -maxdepth 1)
+        if not isSubv "$i"
+            return 1
+        end
+    end
+
+    return 0
+end
+
+function isBackupDir --description 'checks if the given backup-path only contains subvolumes' --argument-names backup_path
+    assertArgNumber (count $argv) 1 (status function)
+
+    if not path is "$backup_path"
+        err "backup-path '$backup_path' must be a valid directory"
+        return 1
+    end
+
+    if not onlyContainsSubv "$backup_path"
+        err "backup-path '$backup_path' must only contain incremental backup subvolumes"
+        return 1
+    end
+
+    return 0
+end
+
+argparse h/help 'o/original-path=!isSubv "$_flag_value"' 'b/backup-path=!isBackupDir "$_flag_value"' -- $argv
+
+if test -n "$_flag_h"
+    print_usage
+end
+
+# check for missing '.snapshots' subvolume at the origin; create it if it is missing
+if not isSubv "$_flag_o/.snapshots"
+    sudo btrfs subvolume create "$_flag_o/.snapshots"
+else
+    if not onlyContainsSubv "$_flag_o/.snapshots"
+        err "path '$_flag_o/.snapshots' should only contain subvolumes"
+    end
+end
