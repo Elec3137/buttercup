@@ -2,7 +2,14 @@
 # btrfs backup - butter cup :3
 
 function print_usage
-    printf 'usage: --origin-path <PATH> --backup-path <PATH>\n'
+    printf 'usage: --origin-path <subvol> [--backup-path <mount>]
+
+origin-path must be given, and must be a subvolume
+\tIf it doesn\'t contain a ".snapshots" child subvolume, one will be created
+
+If backup-path is given, then the program will run an automatically-managed incremental backup to that location
+\tOtherwise, it will simply prompt to cycle snapshots within origin
+'
     exit
 end
 
