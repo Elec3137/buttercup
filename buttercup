@@ -145,7 +145,7 @@ function regulateSnapshots --argument-names source
     assertArgNumber (count $argv) 1 (status function)
 
     info "regulating snapshots in '$source'"
-    if test (count (listSubv "$source")) -gt 4
+    if test (count (listSubv "$source")) -gt 2
         set deletionTarget (leastRecentSubv "$source")
         if not test "$deletionTarget" = "$source"
             sudo btrfs subvolume delete "$deletionTarget"
