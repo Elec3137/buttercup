@@ -2,21 +2,21 @@
 # btrfs backup - butter cup :3
 
 function print_usage
-    printf 'usage: \n'
+    printf 'usage: --origin-path <PATH> --backup-path <PATH>\n'
     exit
 end
 
 function err --description 'prints the given error message and exits'
-    set_color brred
+    set_color brred >&2
     echo $argv >&2
-    set_color normal
+    set_color normal >&2
     exit 1
 end
 
 function info --description 'prints info as cyan into stderr, to enhance readability and avoid being hidden and used by redirection'
-    set_color brcyan
+    set_color brcyan >&2
     echo $argv >&2
-    set_color normal
+    set_color normal >&2
 end
 
 function assertArgNumber --description 'prints warning messages and exits if the calling function has a different number of args than specified' --argument-names real expected function
@@ -38,6 +38,12 @@ function isSubv --description 'check if the given dir is a subvolume' --argument
     end
 end
 
+function getCreationTime --description 'outputs the creation time of the given subvolume' --argument-names subvol
+    assertArgNumber (count $argv) 1 (status function)
+
+    echo "$(date --date $(sudo btrfs subvolume show "$subvol" | grep -oP 'Creation time:\s*\K\d.*$') +%s)"
+end
+
 function listSubv --description 'lists subvolumes in the given path' --argument-names path
     assertArgNumber (count $argv) 1 (status function)
 
@@ -54,7 +60,7 @@ function listSubvTime --description 'lists subvolumes in the given path with the
     for i in (find "$path" -maxdepth 1 -mindepth 1)
         if isSubv "$i"
             # please include options for machine readable output so this would not be needed
-            printf "%s %s\n" "$(date --date $(sudo btrfs subvolume show "$i" | grep -oP 'Creation time:\s*\K\d.*$') +%s)" "$i"
+            printf "%s %s\n" "$(getCreationTime "$i")" "$i"
         end
     end
 end
@@ -67,47 +73,82 @@ end
 
 function mostRecentSubv --argument-names path
     set sortedSubvols $(listSubvSort "$path")
+    echo $sortedSubvols[-1]
+end
+
+function leastRecentSubv --argument-names path
+    set sortedSubvols $(listSubvSort "$path")
     echo $sortedSubvols[1]
 end
 
-function renameReceived --argument-names subvol mount
-    assertArgNumber (count $argv) 2 (status function)
+function takeSnapshot --description 'takes a ".snapshots" subvolume and snapshots the parent into it with a random int name' --argument-names subvol
+    assertArgNumber (count $argv) 1 (status function)
 
-    sudo mv "$mount/$(path basename "$subvol")" "$(getIncrementName "$mount")"
+    sudo btrfs subvolume snapshot -r "$(path normalize "$subvol/../")" "$subvol/$(random)"
 end
 
-function initialBackup --argument-names subvol mount
+function renameReceived --description 'after snapshot is received, this would be called to rename it with the creation time of the original subvolume to keep track of its parent' --argument-names subvol mount
     assertArgNumber (count $argv) 2 (status function)
 
+    sudo mv -v "$mount/$(path basename "$subvol")" "$mount/$(getCreationTime "$subvol")"
+end
+
+function initialBackup --description 'used for the first backup, before incremental backups are possible' --argument-names source mount
+    assertArgNumber (count $argv) 2 (status function)
+
+    set subvol (mostRecentSubv "$source")
     sudo btrfs send --compressed-data "$subvol" | sudo btrfs receive "$mount"
     renameReceived "$subvol" "$mount"
 end
 
-function incrementalBackup --argument-names subvol parent mount
-    assertArgNumber (count $argv) 3 (status function)
+function getParent --description 'outputs the correct parent for the next incremental backup' --argument-names source mount
+    assertArgNumber (count $argv) 2 (status function)
 
+    set sourceSnaps $(listSubvTime "$source")
+    set latestIncrement $(mostRecentSubv "$mount")
+    for i in $sourceSnaps
+        if test (echo $i | cut -d' ' -f1) -eq "$(path basename "$latestIncrement")"
+            echo $i | cut -d' ' -f2-
+            return 0
+        end
+    end
+
+    err "parent subvolume for latestIncrement '$latestIncrement' seems to be missing"
+end
+
+function incrementalBackup --description 'the primary function; a sort of "wrapper" for btrfs send and receive with the parent specified' --argument-names source mount
+    assertArgNumber (count $argv) 2 (status function)
+
+    set parent (getParent "$source" "$mount")
+    set subvol (mostRecentSubv "$source")
+    if test "$parent" = "$subvol"
+        info "no subvolumes more recent than '$parent' to backup; taking a new snapshot"
+        takeSnapshot "$source"
+        set subvol (mostRecentSubv "$source")
+        if test "$parent" = "$subvol"
+            err "failed to create a newer snapshot"
+        end
+    end
     sudo btrfs send --compressed-data "$subvol" -p "$parent" | sudo btrfs receive "$mount"
     renameReceived "$subvol" "$mount"
 end
 
-function getIncrementName --description 'outputs the name for the next incremental backup' --argument-names mount
+function regulateSnapshots --argument-names source
     assertArgNumber (count $argv) 1 (status function)
 
-    set subvols (listSubvSort "$mount")
-    set name "@$(math "$(path basename $subvols[1] | cut -d'@' -f2-) + 1")"
-    if test "$status" -eq 0
-        err "creating increment name '$name' ended with an error"
+    if test (count (listSubv "$source") -gt 4)
+        set deletionTarget (leastRecentSubv "$source")
+        if not test "$deletionTarget" = "$source"
+            sudo btrfs subvolume delete "$deletionTarget"
+        else
+            err "deletionTarget is equivelent to source"
+        end
     end
 
-    echo $name
+    takeSnapshot "$source"
 end
 
-function findMatch --argument-names subvol mount
-    set sourceSnaps $(listSubvTime)
-    set
-end
-
-argparse h/help 'o/original-path=' 'b/backup-path=' -- $argv
+argparse h/help 'o/origin-path=' 'b/backup-path=' -- $argv
 or print_usage
 
 if set -ql _flag_h
@@ -116,32 +157,32 @@ end
 
 # assert basic argument requirements
 if not isSubv "$_flag_o"
-    err "origin-path must lead to a subvolume"
+    err "origin-path must be set to a subvolume"
 end
 if not path is -d "$_flag_b"
-    err "backup-path must be a directory"
+    err "backup-path must be set to a directory"
 end
 
+# make sure source is ready for backups
 if not isSubv "$_flag_o/.snapshots" # TODO: account for case in which it is not a subvolume, and contains files
     sudo btrfs subvolume create "$_flag_o/.snapshots"
+    or err "unable to stage source"
 end
-
 if test (count (listSubv "$_flag_o/.snapshots")) -lt 1
-    sudo btrfs subvolume snapshot -r "$_flag_o" "$_flag_o/.snapshots/$(random)"
+    takeSnapshot "$_flag_o"
+    or err "unable to create initial snapshot"
 end
 
-set source (listSubvSort "$_flag_o/.snapshots")
 if test (count (listSubv "$_flag_b")) -eq 0
-    initialBackup "$source[1]" "$_flag_b"
+    initialBackup "$_flag_o/.snapshots" "$_flag_b"
 else
-    incrementalBackup "$source[1]" "$source[2]" "$_flag_b/$(getIncrementName $_flag_b)"
+    incrementalBackup "$_flag_o/.snapshots" "$_flag_b"
+    # since the new parent has been assigned, it is safe to manage snapshots
+    regulateSnapshots "$_flag_o/.snapshots"
 end
 
-'
-[sudo: authenticate] Password: 
-At subvol /mnt/data/.snapshots/7288
-At subvol 7288
-[sudo: authenticate] Password: sudo-rs: timed out
-date: invalid date ‘+%s’
-creating increment name \'@7289\' ended with an error
-'
+# update list within grub with mkconfig; if grub-btrfs is found
+# if not, fail silently
+if pacman -Q grub-btrfs >/dev/null
+    sudo grub-mkconfig -o /boot/grub/grub.cfg
+end
