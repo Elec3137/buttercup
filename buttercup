@@ -26,23 +26,6 @@ function info --description 'prints info as cyan into stderr, to enhance readabi
     set_color normal >&2
 end
 
-function confirm --description 'asks for user input, returns 0 (yes) or 1 (no).'
-    if not status is-interactive-read
-        return 0
-    end
-
-    set_color brcyan >&2
-    printf "%s [y/N]\n" "$argv" >&2
-    set_color normal >&2
-
-    read response
-    if string match -qr 'y|ye|yes' $(string lower "$response")
-        return 0
-    else
-        return 1
-    end
-end
-
 function assertArgNumber --description 'prints warning messages and exits if the calling function has a different number of args than specified' --argument-names real expected function
     if test "$real" -lt "$expected"
         err "less than expected $expected arguments to $function"
@@ -215,10 +198,8 @@ if set -ql _flag_b
     end
 
 else
-    if confirm "cycle snapshots?"
-        regulateSnapshots "$_flag_o/.snapshots"
-        and set snapshotShift
-    end
+    regulateSnapshots "$_flag_o/.snapshots"
+    and set snapshotShift
 end
 
 # update list within grub with mkconfig
