@@ -8,15 +8,32 @@ end
 
 function err --description 'prints the given error message and exits'
     set_color brred >&2
-    echo $argv >&2
+    printf "%s\n" "$argv" >&2
     set_color normal >&2
     exit 1
 end
 
 function info --description 'prints info as cyan into stderr, to enhance readability and avoid being hidden and used by redirection'
-    set_color brcyan >&2
-    echo $argv >&2
+    set_color cyan >&2
+    printf "%s\n" "$argv" >&2
     set_color normal >&2
+end
+
+function confirm --description 'asks for user input, returns 0 (yes) or 1 (no).'
+    if not status is-interactive-read
+        return 0
+    end
+
+    set_color brcyan >&2
+    printf "%s [y/N]\n" "$argv" >&2
+    set_color normal >&2
+
+    read response
+    if string match -qr 'y|ye|yes' $(string lower "$response")
+        return 0
+    else
+        return 1
+    end
 end
 
 function assertArgNumber --description 'prints warning messages and exits if the calling function has a different number of args than specified' --argument-names real expected function
@@ -81,10 +98,10 @@ function leastRecentSubv --argument-names path
     echo $sortedSubvols[1]
 end
 
-function takeSnapshot --description 'takes a ".snapshots" subvolume and snapshots the parent into it with a random int name' --argument-names subvol
+function takeSnapshot --description 'takes a ".snapshots" subvolume and snapshots the parent into it with a random int name' --argument-names source
     assertArgNumber (count $argv) 1 (status function)
 
-    sudo btrfs subvolume snapshot -r "$(path normalize "$subvol/../")" "$subvol/$(random)"
+    sudo btrfs subvolume snapshot -r "$(path normalize "$source/../")" "$source/$(random)"
 end
 
 function renameReceived --description 'after snapshot is received, this would be called to rename it with the creation time of the original subvolume to keep track of its parent' --argument-names subvol mount
@@ -129,6 +146,7 @@ function incrementalBackup --description 'the primary function; a sort of "wrapp
             err "failed to create a newer snapshot"
         end
     end
+    info "sending incremental backup with the difference between '$subvol' and '$parent' and receiving at '$mount'"
     sudo btrfs send --compressed-data "$subvol" -p "$parent" | sudo btrfs receive "$mount"
     renameReceived "$subvol" "$mount"
 end
@@ -136,6 +154,7 @@ end
 function regulateSnapshots --argument-names source
     assertArgNumber (count $argv) 1 (status function)
 
+    info "regulating snapshots after successful incremental backup"
     if test (count (listSubv "$source") -gt 4)
         set deletionTarget (leastRecentSubv "$source")
         if not test "$deletionTarget" = "$source"
@@ -155,15 +174,13 @@ if set -ql _flag_h
     print_usage
 end
 
-# assert basic argument requirements
+# origin must always be defined and valid
 if not isSubv "$_flag_o"
+    # TODO: add option and functions to convert to a subvolume upon request
     err "origin-path must be set to a subvolume"
 end
-if not path is -d "$_flag_b"
-    err "backup-path must be set to a directory"
-end
 
-# make sure source is ready for backups
+# make sure origin is ready for snapshots
 if not isSubv "$_flag_o/.snapshots" # TODO: account for case in which it is not a subvolume, and contains files
     sudo btrfs subvolume create "$_flag_o/.snapshots"
     or err "unable to stage source"
@@ -171,18 +188,38 @@ end
 if test (count (listSubv "$_flag_o/.snapshots")) -lt 1
     takeSnapshot "$_flag_o"
     or err "unable to create initial snapshot"
+
+    set snapshotShift
 end
 
-if test (count (listSubv "$_flag_b")) -eq 0
-    initialBackup "$_flag_o/.snapshots" "$_flag_b"
+if set -ql _flag_b
+    if not path is -d "$_flag_b"
+        err "backup-path must be set to a directory"
+    end
+
+    if test (count (listSubv "$_flag_b")) -eq 0
+        initialBackup "$_flag_o/.snapshots" "$_flag_b"
+    else
+        if incrementalBackup "$_flag_o/.snapshots" "$_flag_b"
+            # since the new parent has been assigned, it is safe to manage snapshots
+            regulateSnapshots "$_flag_o/.snapshots"
+            and set snapshotShift
+        end
+    end
+
 else
-    incrementalBackup "$_flag_o/.snapshots" "$_flag_b"
-    # since the new parent has been assigned, it is safe to manage snapshots
-    regulateSnapshots "$_flag_o/.snapshots"
+    if confirm "cycle snapshots?"
+        regulateSnapshots "$_flag_o/.snapshots"
+        and set snapshotShift
+    end
 end
 
-# update list within grub with mkconfig; if grub-btrfs is found
-# if not, fail silently
-if pacman -Q grub-btrfs >/dev/null
+# update list within grub with mkconfig
+# if snapshotShift wasn't recorded, origin was not root, or grub-btrfs wasn't found, fail silently
+if set -q snapshotShift
+    and test "$(path normalize $_flag_o)" = /
+    and pacman -Q grub-btrfs >/dev/null
+
+    info "grub-btrfs detected, updating grub to populate snapshot entries"
     sudo grub-mkconfig -o /boot/grub/grub.cfg
 end
