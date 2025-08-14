@@ -101,11 +101,21 @@ function renameReceived --description 'after snapshot is received, this would be
 end
 
 function markParent --argument-names subvol
-    mv "$subvol" ""$subvol"parent"
+    if not string match -q '*parent*' "$(path basename "$subvol")"
+        info "marking new parent"
+        sudo mv -v "$subvol" ""$subvol"parent"
+    else
+        info "subvolume '$subvol' was already marked"
+    end
 end
 
 function unmarkParent --argument-names subvol
-    mv "$subvol" "$(path dirname "$subvol")/$(path basename "$subvol" | cut -d'p' -f 1)"
+    if string match -q '*parent*' "$(path basename "$subvol")"
+        info "unmarking previous parent"
+        sudo mv -v "$subvol" "$(path dirname "$subvol")/$(path basename "$subvol" | cut -d'p' -f 1)"
+    else
+        info "subvolume '$subvol' was not marked"
+    end
 end
 
 function initialBackup --description 'used for the first backup, before incremental backups are possible' --argument-names source mount
@@ -165,7 +175,7 @@ The newParent arg is there as an additional safeguard to avoid deleting that imp
         set deletionTarget (leastRecentSubv "$source")
         if test "$deletionTarget" = "$source"
             err "deletionTarget is equivelent to source '$deletionTarget'"
-        else if string match -qv '*parent*' "$deletionTarget"
+        else if string match -q '*parent*' "$(path basename "$deletionTarget")"
             info "skipping deletion of '$deletionTarget' as it is marked as a parent"
             info "    you may manually delete it if unneeded with 'btrfs subvolume delete \"$deletionTarget\"'"
             info "  skipping snapshot cleanup due to oldest remaining snapshot being a parent"
@@ -186,7 +196,7 @@ function regulateSnapshots --argument-names source
         set deletionTarget (leastRecentSubv "$source")
         if test "$deletionTarget" = "$source"
             err "deletionTarget is equivelent to source '$deletionTarget'"
-        else if string match -qv '*parent*' "$deletionTarget"
+        else if string match -q '*parent*' "$(path basename "$deletionTarget")"
             info "skipping deletion of '$deletionTarget' as it is marked as a parent"
             info "    you may manually delete it if unneeded with 'btrfs subvolume delete \"$deletionTarget\"'"
             info "  skipping snapshot cleanup due to oldest remaining snapshot being a parent"
