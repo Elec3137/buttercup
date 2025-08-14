@@ -100,6 +100,14 @@ function renameReceived --description 'after snapshot is received, this would be
     sudo mv -v "$mount/$(path basename "$subvol")" "$mount/$(getCreationTime "$subvol")"
 end
 
+function markParent --argument-names subvol
+    mv "$subvol" ""$subvol"parent"
+end
+
+function unmarkParent --argument-names subvol
+    mv "$subvol" "$(path dirname "$subvol")/$(path basename "$subvol" | cut -d'p' -f 1)"
+end
+
 function initialBackup --description 'used for the first backup, before incremental backups are possible' --argument-names source mount
     assertArgNumber (count $argv) 2 (status function)
 
@@ -108,6 +116,7 @@ function initialBackup --description 'used for the first backup, before incremen
     info "this tends to take a while; it will simply copy all the data"
     sudo btrfs send --compressed-data "$subvol" | sudo btrfs receive "$mount"
     renameReceived "$subvol" "$mount"
+    markParent "$subvol"
 end
 
 function getParent --description 'outputs the correct parent for the next incremental backup' --argument-names source mount
@@ -141,21 +150,26 @@ function incrementalBackup --description 'the primary function; a sort of "wrapp
     info "sending incremental backup with the difference between '$subvol' and '$parent' and receiving at '$mount'"
     sudo btrfs send --compressed-data "$subvol" -p "$parent" | sudo btrfs receive "$mount"
     renameReceived "$subvol" "$mount"
-    minimizeSnapshotsAfterIncrement "$source" "$(getParent "$source" "$mount")"
+    unmarkParent "$parent"
+    markParent "$subvol"
+    minimizeSnapshotsAfterIncrement "$source"
 end
 
 function minimizeSnapshotsAfterIncrement --description 'reduces the snapshots on the source to just the neccessary "parent" plus one extra.
 This is to avoid  the user manually deleting snapshots to save space, and potentially deleting the parent which breaks the chain of incremental backups
-The newParent arg is there as an additional safeguard to avoid deleting that important subvolume' --argument-names source newParent
-    assertArgNumber (count $argv) 2 (status function)
+The newParent arg is there as an additional safeguard to avoid deleting that important subvolume' --argument-names source
+    assertArgNumber (count $argv) 1 (status function)
 
     info "post-increment regulating snapshots in '$source'"
     while test (count (listSubv "$source")) -gt 2
         set deletionTarget (leastRecentSubv "$source")
         if test "$deletionTarget" = "$source"
             err "deletionTarget is equivelent to source '$deletionTarget'"
-        else if test "$deletionTarget" = "$newParent"
-            err "deletionTarget is the new parent snapshot '$deletionTarget'"
+        else if string match -qv '*parent*' "$deletionTarget"
+            info "skipping deletion of '$deletionTarget' as it is marked as a parent"
+            info "    you may manually delete it if unneeded with 'btrfs subvolume delete \"$deletionTarget\"'"
+            info "  skipping snapshot cleanup due to oldest remaining snapshot being a parent"
+            break
         else
             sudo btrfs subvolume delete "$deletionTarget"
         end
@@ -172,6 +186,10 @@ function regulateSnapshots --argument-names source
         set deletionTarget (leastRecentSubv "$source")
         if test "$deletionTarget" = "$source"
             err "deletionTarget is equivelent to source '$deletionTarget'"
+        else if string match -qv '*parent*' "$deletionTarget"
+            info "skipping deletion of '$deletionTarget' as it is marked as a parent"
+            info "    you may manually delete it if unneeded with 'btrfs subvolume delete \"$deletionTarget\"'"
+            info "  skipping snapshot cleanup due to oldest remaining snapshot being a parent"
         else
             sudo btrfs subvolume delete "$deletionTarget"
         end
