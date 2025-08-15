@@ -13,20 +13,20 @@ If backup-path is given, then the program will run an automatically-managed incr
     exit
 end
 
-function err --description 'prints the given error message and exits'
+function err -d 'prints the given error message and exits'
     set_color brred >&2
     printf "%s\n" "$argv" >&2
     set_color normal >&2
     exit 1
 end
 
-function info --description 'prints info as cyan into stderr, to enhance readability and avoid being hidden and used by redirection'
+function info -d 'prints info as cyan into stderr, to enhance readability and avoid being hidden and used by redirection'
     set_color cyan >&2
     printf "%s\n" "$argv" >&2
     set_color normal >&2
 end
 
-function assertArgNumber --description 'prints warning messages and exits if the calling function has a different number of args than specified' --argument-names real expected function
+function assertArgNumber -d 'prints warning messages and exits if the calling function has a different number of args than specified' -a real expected function
     if test "$real" -lt "$expected"
         err "less than expected $expected arguments to $function"
     else if test "$real" -gt "$expected"
@@ -34,7 +34,7 @@ function assertArgNumber --description 'prints warning messages and exits if the
     end
 end
 
-function isSubv --description 'check if the given dir is a subvolume' --argument-names dir
+function isSubv -d 'check if the given dir is a subvolume' -a dir
     assertArgNumber (count $argv) 1 (status function)
 
     if path is -d "$dir"
@@ -45,13 +45,13 @@ function isSubv --description 'check if the given dir is a subvolume' --argument
     end
 end
 
-function getCreationTime --description 'outputs the creation time of the given subvolume' --argument-names subvol
+function getCreationTime -d 'outputs the creation time of the given subvolume' -a subvol
     assertArgNumber (count $argv) 1 (status function)
 
     echo "$(date --date $(sudo btrfs subvolume show "$subvol" | grep -oP 'Creation time:\s*\K\d.*$') +%s)"
 end
 
-function listSubv --description 'lists subvolumes in the given path' --argument-names path
+function listSubv -d 'lists subvolumes in the given path' -a path
     assertArgNumber (count $argv) 1 (status function)
 
     for i in (find "$path" -maxdepth 1 -mindepth 1)
@@ -61,7 +61,7 @@ function listSubv --description 'lists subvolumes in the given path' --argument-
     end
 end
 
-function listSubvTime --description 'lists subvolumes in the given path with their creation date in seconds first, so they can then be sorted' --argument-names path
+function listSubvTime -d 'lists subvolumes in the given path with their creation date in seconds first, so they can then be sorted' -a path
     assertArgNumber (count $argv) 1 (status function)
 
     for i in (find "$path" -maxdepth 1 -mindepth 1)
@@ -72,35 +72,35 @@ function listSubvTime --description 'lists subvolumes in the given path with the
     end
 end
 
-function listSubvSort --description 'wraps listSubvTime, sorts it, and removes the time' --argument-names path
+function listSubvSort -d 'wraps listSubvTime, sorts it, and removes the time' -a path
     assertArgNumber (count $argv) 1 (status function)
 
     listSubvTime "$path" | sort -n | cut -d' ' -f2-
 end
 
-function mostRecentSubv --argument-names path
+function mostRecentSubv -a path
     set sortedSubvols $(listSubvSort "$path")
     echo $sortedSubvols[-1]
 end
 
-function oldestSubv --argument-names path
+function oldestSubv -a path
     set sortedSubvols $(listSubvSort "$path")
     echo $sortedSubvols[1]
 end
 
-function takeSnapshot --description 'takes a ".snapshots" subvolume and snapshots the parent into it with a random int name' --argument-names source
+function takeSnapshot -d 'takes a ".snapshots" subvolume and snapshots the parent into it with a random int name' -a source
     assertArgNumber (count $argv) 1 (status function)
 
     sudo btrfs subvolume snapshot -r "$(path normalize "$source/../")" "$source/$(random)"
 end
 
-function renameReceived --description 'after snapshot is received, this would be called to rename it with the creation time of the original subvolume to keep track of its parent' --argument-names subvol mount
+function renameReceived -d 'after snapshot is received, this would be called to rename it with the creation time of the original subvolume to keep track of its parent' -a subvol mount
     assertArgNumber (count $argv) 2 (status function)
 
     sudo mv -v "$mount/$(path basename "$subvol")" "$mount/$(getCreationTime "$subvol")"
 end
 
-function markParent --argument-names subvol
+function markParent -a subvol
     if not string match -q '*parent*' "$(path basename "$subvol")"
         info "marking new parent"
         sudo mv -v "$subvol" ""$subvol"parent"
@@ -109,7 +109,7 @@ function markParent --argument-names subvol
     end
 end
 
-function unmarkParent --argument-names subvol
+function unmarkParent -a subvol
     if string match -q '*parent*' "$(path basename "$subvol")"
         info "unmarking previous parent"
         sudo mv -v "$subvol" "$(path dirname "$subvol")/$(path basename "$subvol" | string replace 'parent' '')"
@@ -118,7 +118,7 @@ function unmarkParent --argument-names subvol
     end
 end
 
-function initialBackup --description 'used for the first backup, before incremental backups are possible' --argument-names source mount
+function initialBackup -d 'used for the first backup, before incremental backups are possible' -a source mount
     assertArgNumber (count $argv) 2 (status function)
 
     set subvol (mostRecentSubv "$source")
@@ -129,7 +129,7 @@ function initialBackup --description 'used for the first backup, before incremen
     markParent "$subvol"
 end
 
-function getParent --description 'outputs the correct parent for the next incremental backup' --argument-names source mount
+function getParent -d 'outputs the correct parent for the next incremental backup' -a source mount
     assertArgNumber (count $argv) 2 (status function)
 
     set sourceSnaps $(listSubvTime "$source")
@@ -144,7 +144,7 @@ function getParent --description 'outputs the correct parent for the next increm
     err "parent subvolume for latestIncrement '$latestIncrement' seems to be missing"
 end
 
-function incrementalBackup --description 'the primary function; a sort of "wrapper" for btrfs send and receive with the parent specified' --argument-names source mount
+function incrementalBackup -d 'the primary function; a sort of "wrapper" for btrfs send and receive with the parent specified' -a source mount
     assertArgNumber (count $argv) 2 (status function)
 
     set parent (getParent "$source" "$mount")
@@ -165,7 +165,7 @@ function incrementalBackup --description 'the primary function; a sort of "wrapp
     regulateSnapshots "$source" 2
 end
 
-function delOldestSubv --description 'deletes the oldest subvolume; if its name is not marked as a parent' --argument-names source
+function delOldestSubv -d 'deletes the oldest subvolume; if its name is not marked as a parent' -a source
     assertArgNumber (count $argv) 1 (status function)
 
     set deletionTarget (oldestSubv "$source")
@@ -181,7 +181,7 @@ function delOldestSubv --description 'deletes the oldest subvolume; if its name 
     end
 end
 
-function regulateSnapshots --description 'trims down the number of snapshots in source to the given value' --argument-names source numSnapshots
+function regulateSnapshots -d 'trims down the number of snapshots in source to the given value' -a source numSnapshots
     assertArgNumber (count $argv) 2 (status function)
 
     info "regulating snapshots in '$source'"
