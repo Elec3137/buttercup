@@ -211,11 +211,6 @@ if not isSubv "$_flag_o/.snapshots" # TODO: account for case in which it is not 
     sudo btrfs subvolume create "$_flag_o/.snapshots"
     or err "unable to stage source"
 end
-if test (count (listSubv "$_flag_o/.snapshots")) -lt 1
-    takeSnapshot "$_flag_o"
-    or err "unable to create initial snapshot"
-
-end
 
 if set -ql _flag_b
     if not path is -d "$_flag_b"
