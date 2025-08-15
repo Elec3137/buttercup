@@ -213,7 +213,6 @@ if not isSubv "$_flag_o/.snapshots" # TODO: account for case in which it is not 
 end
 if test (count (listSubv "$_flag_o/.snapshots")) -lt 1
     takeSnapshot "$_flag_o"
-    and set snapshotShift
     or err "unable to create initial snapshot"
 
 end
@@ -227,19 +226,16 @@ if set -ql _flag_b
         initialBackup "$_flag_o/.snapshots" "$_flag_b"
     else
         incrementalBackup "$_flag_o/.snapshots" "$_flag_b"
-        and set snapshotShift
     end
 
 else
     regulateSnapshots "$_flag_o/.snapshots" 3
     and takeSnapshot "$_flag_o/.snapshots"
-    and set snapshotShift
 end
 
 # update list within grub with mkconfig
 # if snapshotShift wasn't recorded, origin was not root, or grub-btrfs wasn't found, fail silently
-if set -q snapshotShift
-    and test "$(path normalize $_flag_o)" = /
+if and test "$(path normalize $_flag_o)" = /
     and pacman -Q grub-btrfs >/dev/null
 
     info "grub-btrfs detected, updating grub to populate snapshot entries"
