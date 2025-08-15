@@ -112,7 +112,7 @@ end
 function unmarkParent --argument-names subvol
     if string match -q '*parent*' "$(path basename "$subvol")"
         info "unmarking previous parent"
-        sudo mv -v "$subvol" "$(path dirname "$subvol")/$(path basename "$subvol" | cut -d'p' -f 1)"
+        sudo mv -v "$subvol" "$(path dirname "$subvol")/$(path basename "$subvol" | string replace 'parent' '')"
     else
         info "subvolume '$subvol' was not marked"
     end
