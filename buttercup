@@ -83,7 +83,7 @@ function mostRecentSubv --argument-names path
     echo $sortedSubvols[-1]
 end
 
-function leastRecentSubv --argument-names path
+function oldestSubv --argument-names path
     set sortedSubvols $(listSubvSort "$path")
     echo $sortedSubvols[1]
 end
@@ -162,50 +162,35 @@ function incrementalBackup --description 'the primary function; a sort of "wrapp
     renameReceived "$subvol" "$mount"
     unmarkParent "$parent"
     markParent "$subvol"
-    minimizeSnapshotsAfterIncrement "$source"
+    regulateSnapshots "$source" 2
 end
 
-function minimizeSnapshotsAfterIncrement --description 'reduces the snapshots on the source to just the neccessary "parent" plus one extra.
-This is to avoid  the user manually deleting snapshots to save space, and potentially deleting the parent which breaks the chain of incremental backups
-The newParent arg is there as an additional safeguard to avoid deleting that important subvolume' --argument-names source
+function delOldestSubv --description 'deletes the oldest subvolume; if its name is not marked as a parent' --argument-names source
     assertArgNumber (count $argv) 1 (status function)
 
-    info "post-increment regulating snapshots in '$source'"
-    while test (count (listSubv "$source")) -gt 2
-        set deletionTarget (leastRecentSubv "$source")
-        if test "$deletionTarget" = "$source"
-            err "deletionTarget is equivelent to source '$deletionTarget'"
-        else if string match -q '*parent*' "$(path basename "$deletionTarget")"
-            info "skipping deletion of '$deletionTarget' as it is marked as a parent"
-            info "    you may manually delete it if unneeded with 'btrfs subvolume delete \"$deletionTarget\"'"
-            info "  skipping snapshot cleanup due to oldest remaining snapshot being a parent"
-            break
-        else
-            sudo btrfs subvolume delete "$deletionTarget"
-        end
-
+    set deletionTarget (oldestSubv "$source")
+    if test "$deletionTarget" = "$source"
+        err "deletionTarget is equivelent to source '$deletionTarget'"
+    else if string match -q '*parent*' "$(path basename "$deletionTarget")"
+        info "skipping deletion of '$deletionTarget' as it is marked as a parent"
+        info "    you may manually delete it if unneeded with 'btrfs subvolume delete \"$deletionTarget\"'"
+        info "  skipping snapshot cleanup due to oldest remaining snapshot being a parent"
+        return 1
+    else
+        sudo btrfs subvolume delete "$deletionTarget"
     end
-
 end
 
-function regulateSnapshots --argument-names source
-    assertArgNumber (count $argv) 1 (status function)
+function regulateSnapshots --description 'trims down the number of snapshots in source to the given value' --argument-names source numSnapshots
+    assertArgNumber (count $argv) 2 (status function)
 
     info "regulating snapshots in '$source'"
-    if test (count (listSubv "$source")) -gt 2
-        set deletionTarget (leastRecentSubv "$source")
-        if test "$deletionTarget" = "$source"
-            err "deletionTarget is equivelent to source '$deletionTarget'"
-        else if string match -q '*parent*' "$(path basename "$deletionTarget")"
-            info "skipping deletion of '$deletionTarget' as it is marked as a parent"
-            info "    you may manually delete it if unneeded with 'btrfs subvolume delete \"$deletionTarget\"'"
-            info "  skipping snapshot cleanup due to oldest remaining snapshot being a parent"
-        else
-            sudo btrfs subvolume delete "$deletionTarget"
+    while test (count (listSubv "$source")) -gt "$numSnapshots"
+        if not delOldestSubv "$source"
+            break
         end
     end
 
-    takeSnapshot "$source"
 end
 
 argparse h/help 'o/origin-path=' 'b/backup-path=' -- $argv
@@ -246,7 +231,8 @@ if set -ql _flag_b
     end
 
 else
-    regulateSnapshots "$_flag_o/.snapshots"
+    regulateSnapshots "$_flag_o/.snapshots" 3
+    and takeSnapshot "$_flag_o/.snapshots"
     and set snapshotShift
 end
 
