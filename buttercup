@@ -121,6 +121,13 @@ end
 function initialBackup -d 'used for the first backup, before incremental backups are possible' -a source mount
     assertArgNumber (count $argv) 2 (status function)
 
+    if test (count (listSubv "$source")) -lt 1
+        info "taking snapshot; less than 1 subvolumes in source '$source'"
+        if not takeSnapshot "$source"
+            err "unable to take initial snapshot"
+        end
+    end
+
     set subvol (mostRecentSubv "$source")
     info "sending initial backup of '$subvol' and receiving at '$mount'"
     info "this tends to take a while; it will simply copy all the data"
