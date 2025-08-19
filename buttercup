@@ -234,12 +234,3 @@ else
     regulateSnapshots "$_flag_o/.snapshots" 3
     and takeSnapshot "$_flag_o/.snapshots"
 end
-
-# update list within grub with mkconfig
-# if snapshotShift wasn't recorded, origin was not root, or grub-btrfs wasn't found, fail silently
-if and test "$(path normalize $_flag_o)" = /
-    and pacman -Q grub-btrfs &>/dev/null
-
-    info "grub-btrfs detected, updating grub to populate snapshot entries"
-    sudo grub-mkconfig -o /boot/grub/grub.cfg
-end
