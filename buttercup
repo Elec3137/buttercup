@@ -101,12 +101,9 @@ function renameReceived -d 'after snapshot is received, this would be called to 
 end
 
 function markParent -a subvol
-    if not string match -q '*parent*' "$(path basename "$subvol")"
-        info "marking new parent"
-        sudo mv -v "$subvol" ""$subvol"parent"
-    else
-        info "subvolume '$subvol' was already marked"
-    end
+    # if not string match -q '*parent*' "$(path basename "$subvol")"
+    info "marking new parent"
+    sudo mv -v "$subvol" ""$subvol"parent"
 end
 
 function unmarkParent -a subvol
