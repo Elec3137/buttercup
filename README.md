@@ -28,8 +28,8 @@ ExecStart=/usr/bin/buttercup -o "$origin" -b "$backup"
 [Install]
 WantedBy=multi-user.target
 ```
-Make sure to replace $origin and $backup with the paths on your system  
-And then you can write it to '/etc/systemd/system/buttercup.service' for example  
+Make sure to replace $origin and $backup with the corresponding paths on your system  
+And then you can write it to `/etc/systemd/system/buttercup.service` for instance  
 
 Then, you can create a timer to start the service regularly like so:
 ```sh
@@ -45,15 +45,14 @@ Persistent=true
 [Install]
 WantedBy=timers.target
 ```
-This can be written to '/etc/systemd/system/buttercup.timer'
+This can be written to `/etc/systemd/system/buttercup.timer`
 
 ## The Idea
 
 Tools such as [btrbk](https://github.com/digint/btrbk) can be used for similar purposes, however:  
 
-1. The first thing you always have to do is write a configuration file. `btrbk` can do a lot, which isn't necessarily a good thing.  
-   * `buttercup` is made for one purpose, and in contrast doesn't need a configuration file or any data storage of its own to function. It's simply a script that calls `btrfs-progs` in somewhat smarter ways.
-2. When you need only a simply task done regularly, a smaller script is much easier to understand and therefore use
+The first thing you always have to do is write a configuration file. `btrbk` can do a lot, which isn't necessarily a good thing.  
+But `buttercup` is made for one use-case, and doesn't need a configuration file or any data storage of its own to function. It's simply a script that calls `btrfs-progs` in somewhat smart ways.
 
-In fact, everything `buttercup` does could be done through the shell with the same `btrfs-progs` it uses to function, it just wouldn't be as convinient and leaves too much room for error;
+In fact, everything `buttercup` does could be done through the shell with the same `btrfs-progs` it uses to function, it just wouldn't be as convinient and leaves too much room for user error;
 That's why it is a script with a lot of checks to make sure nothing is going wrong, such as preventing itself from deleting an important "parent" snapshot.
